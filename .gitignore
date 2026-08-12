@@ -3,6 +3,8 @@ dataset/
 test.ipynb
 results/
 test_results/
+result.txt
+checkpoints/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
