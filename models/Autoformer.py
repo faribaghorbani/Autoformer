@@ -17,6 +17,25 @@ class Model(nn.Module):
         self.pred_len = configs.pred_len
         self.output_attention = configs.output_attention
 
+        # experiment 2
+        period_mode = getattr(
+            configs,
+            'period_mode',
+            'original'
+        )
+
+        router_hidden = getattr(
+            configs,
+            'router_hidden',
+            16
+        )
+
+        router_bins = getattr(
+            configs,
+            'router_bins',
+            8
+        )
+
         # Decomp
         kernel_size = configs.moving_avg
         self.decomp = series_decomp(kernel_size)
@@ -34,8 +53,15 @@ class Model(nn.Module):
             [
                 EncoderLayer(
                     AutoCorrelationLayer(
-                        AutoCorrelation(False, configs.factor, attention_dropout=configs.dropout,
-                                        output_attention=configs.output_attention),
+                        AutoCorrelation(
+                                False,
+                                configs.factor,
+                                attention_dropout=configs.dropout,
+                                output_attention=configs.output_attention,
+                                period_mode=period_mode,
+                                router_hidden=router_hidden,
+                                router_bins=router_bins
+                            ),
                         configs.d_model, configs.n_heads),
                     configs.d_model,
                     configs.d_ff,
@@ -51,12 +77,26 @@ class Model(nn.Module):
             [
                 DecoderLayer(
                     AutoCorrelationLayer(
-                        AutoCorrelation(True, configs.factor, attention_dropout=configs.dropout,
-                                        output_attention=False),
+                        AutoCorrelation(
+                            True,
+                            configs.factor,
+                            attention_dropout=configs.dropout,
+                            output_attention=False,
+                            period_mode=period_mode,
+                            router_hidden=router_hidden,
+                            router_bins=router_bins
+                        ),
                         configs.d_model, configs.n_heads),
                     AutoCorrelationLayer(
-                        AutoCorrelation(False, configs.factor, attention_dropout=configs.dropout,
-                                        output_attention=False),
+                        AutoCorrelation(
+                            False,
+                            configs.factor,
+                            attention_dropout=configs.dropout,
+                            output_attention=False,
+                            period_mode=period_mode,
+                            router_hidden=router_hidden,
+                            router_bins=router_bins
+                        ),
                         configs.d_model, configs.n_heads),
                     configs.d_model,
                     configs.c_out,
