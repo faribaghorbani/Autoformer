@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import math
+# add dependency
+import torch.nn.functional as F
 
 
 class AutoCorrelation(nn.Module):
@@ -10,13 +12,39 @@ class AutoCorrelation(nn.Module):
     (2) time delay aggregation
     This block can replace the self-attention family mechanism seamlessly.
     """
-    def __init__(self, mask_flag=True, factor=1, scale=None, attention_dropout=0.1, output_attention=False):
+    # experiment 2A changes
+    def __init__(
+    self,
+    mask_flag=True,
+    factor=1,
+    scale=None,
+    attention_dropout=0.1,
+    output_attention=False,
+    period_mode='original',
+    router_hidden=16,
+    router_bins=8
+    ):
         super(AutoCorrelation, self).__init__()
+
         self.factor = factor
         self.scale = scale
         self.mask_flag = mask_flag
         self.output_attention = output_attention
         self.dropout = nn.Dropout(attention_dropout)
+
+        self.period_mode = period_mode
+        self.router_hidden = router_hidden
+        self.router_bins = router_bins
+
+        if self.period_mode == 'router':
+            self.period_router = nn.Sequential(
+                nn.Linear(router_bins + 2, router_hidden),
+                nn.GELU(),
+                nn.Linear(router_hidden, 1)
+            )
+
+            nn.init.zeros_(self.period_router[-1].weight)
+            nn.init.zeros_(self.period_router[-1].bias)
 
     def time_delay_agg_training(self, values, corr):
         """
@@ -68,6 +96,112 @@ class AutoCorrelation(nn.Module):
             pattern = torch.gather(tmp_values, dim=-1, index=tmp_delay)
             delays_agg = delays_agg + pattern * \
                          (tmp_corr[:, i].unsqueeze(1).unsqueeze(1).unsqueeze(1).repeat(1, head, channel, length))
+        return delays_agg
+
+
+    def time_delay_agg_samplewise(self, values, corr):
+        """
+        Experiment 2A:
+        Sample-wise lag selection during both training and inference.
+
+        values: [B, H, E, L]
+        corr:   [B, H, E, L]
+
+        Selected delays:
+            [B, K]
+
+        Unlike original Autoformer training, we do NOT average
+        the autocorrelation across the batch before Top-K
+        """
+
+        batch = values.shape[0]
+        head = values.shape[1]
+        channel = values.shape[2]
+        length = values.shape[3]
+
+        # Number of selected periods
+        top_k = int(self.factor * math.log(length))
+        top_k = max(1, min(top_k, length))
+
+        # --------------------------------------------------
+        # [B,H,E,L] -> [B,L]
+        #
+        # We keep the original speedup idea of averaging
+        # heads and latent channels.
+        #
+        # But importantly, batch B is preserved.
+        # --------------------------------------------------
+        mean_value = torch.mean(
+            torch.mean(corr, dim=1),
+            dim=1
+        )
+
+        # --------------------------------------------------
+        # Per-sample Top-K
+        #
+        # weights: [B,K]
+        # delay:   [B,K]
+        # --------------------------------------------------
+        weights, delay = torch.topk(
+            mean_value,
+            top_k,
+            dim=-1
+        )
+
+        # Original Autoformer weighting rule:
+        # higher autocorrelation -> larger aggregation weight
+        tmp_corr = torch.softmax(weights, dim=-1)
+
+        # [1,1,1,L]
+        init_index = torch.arange(
+            length,
+            device=values.device
+        ).view(1, 1, 1, length)
+
+        # Allows circular delayed gathering
+        # [B,H,E,L] -> [B,H,E,2L]
+        tmp_values = values.repeat(1, 1, 1, 2)
+
+        delays_agg = torch.zeros_like(values).float()
+
+        for i in range(top_k):
+
+            # delay[:, i]:
+            # [B]
+            #
+            # -> [B,1,1,1]
+            current_delay = delay[:, i].view(
+                batch, 1, 1, 1
+            )
+
+            # [B,1,1,L]
+            tmp_delay = init_index + current_delay
+
+            # Expand for all heads/channels
+            tmp_delay = tmp_delay.expand(
+                batch,
+                head,
+                channel,
+                length
+            )
+
+            # Retrieve the shifted V sequence
+            pattern = torch.gather(
+                tmp_values,
+                dim=-1,
+                index=tmp_delay
+            )
+
+            # Sample-specific weight
+            current_weight = tmp_corr[:, i].view(
+                batch, 1, 1, 1
+            )
+
+            delays_agg = (
+                delays_agg
+                + pattern * current_weight
+            )
+
         return delays_agg
 
     def time_delay_agg_full(self, values, corr):
