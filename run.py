@@ -49,6 +49,29 @@ def main():
     parser.add_argument('--d_ff', type=int, default=2048, help='dimension of fcn')
     parser.add_argument('--moving_avg', type=int, default=25, help='window size of moving average')
     parser.add_argument('--factor', type=int, default=1, help='attn factor')
+
+    # experiment 2A
+    parser.add_argument(
+    '--period_mode',
+    type=str,
+    default='original',
+    choices=['original', 'samplewise', 'router'],
+    help='Auto-Correlation period selection mode'
+    )
+
+    parser.add_argument(
+        '--router_hidden',
+        type=int,
+        default=16,
+        help='hidden dimension of adaptive period router'
+    )
+
+    parser.add_argument(
+        '--router_bins',
+        type=int,
+        default=8,
+        help='number of pooled autocorrelation bins used by period router'
+    )
     parser.add_argument('--distil', action='store_false',
                         help='whether to use distilling in encoder, using this argument means not using distilling',
                         default=True)
@@ -95,23 +118,25 @@ def main():
     if args.is_training:
         for ii in range(args.itr):
             # setting record of experiments
-            setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_fc{}_eb{}_dt{}_{}_{}'.format(
-                args.model_id,
-                args.model,
-                args.data,
-                args.features,
-                args.seq_len,
-                args.label_len,
-                args.pred_len,
-                args.d_model,
-                args.n_heads,
-                args.e_layers,
-                args.d_layers,
-                args.d_ff,
-                args.factor,
-                args.embed,
-                args.distil,
-                args.des, ii)
+            setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_fc{}_eb{}_dt{}_pm{}_rh{}_rb{}_{}_{}'.format(args.model_id,
+                                                                                                                  args.model,
+                                                                                                                  args.data,
+                                                                                                                  args.features,
+                                                                                                                  args.seq_len,
+                                                                                                                  args.label_len,
+                                                                                                                  args.pred_len,
+                                                                                                                  args.d_model,
+                                                                                                                  args.n_heads,
+                                                                                                                  args.e_layers,
+                                                                                                                  args.d_layers,
+                                                                                                                  args.d_ff,
+                                                                                                                  args.factor,
+                                                                                                                  args.embed,
+                                                                                                                  args.distil,
+                                                                                                                  args.period_mode,
+                                                                                                                  args.router_hidden,
+                                                                                                                  args.router_bins,
+                                                                                                                  args.des, ii)
 
             exp = Exp(args)  # set experiments
             print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
@@ -127,7 +152,8 @@ def main():
             torch.cuda.empty_cache()
     else:
         ii = 0
-        setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_fc{}_eb{}_dt{}_{}_{}'.format(args.model_id,
+        # change setting format
+        setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_fc{}_eb{}_dt{}_pm{}_rh{}_rb{}_{}_{}'.format(args.model_id,
                                                                                                       args.model,
                                                                                                       args.data,
                                                                                                       args.features,
@@ -142,6 +168,9 @@ def main():
                                                                                                       args.factor,
                                                                                                       args.embed,
                                                                                                       args.distil,
+                                                                                                      args.period_mode,
+                                                                                                      args.router_hidden,
+                                                                                                      args.router_bins,
                                                                                                       args.des, ii)
 
         exp = Exp(args)  # set experiments
