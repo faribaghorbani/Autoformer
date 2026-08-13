@@ -59,6 +59,33 @@ def main():
     parser.add_argument('--output_attention', action='store_true', help='whether to output attention in encoder')
     parser.add_argument('--do_predict', action='store_true', help='whether to predict unseen future data')
 
+    # ------------------------------------------------------------------
+    # Autoformer decomposition configuration
+    # ------------------------------------------------------------------
+
+    parser.add_argument(
+        '--decomp_type',
+        type=str,
+        default='fixed',
+        choices=['fixed', 'adaptive'],
+        help=(
+            'Type of series decomposition: '
+            'fixed uses the original Autoformer moving average; '
+            'adaptive uses adaptive multi-scale decomposition.'
+        )
+    )
+
+    parser.add_argument(
+        '--decomp_kernels',
+        type=int,
+        nargs='+',
+        default=[13, 25, 49],
+        help=(
+            'Odd moving-average kernel sizes used by adaptive '
+            'multi-scale decomposition.'
+        )
+    )
+
     # optimization
     parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
     parser.add_argument('--itr', type=int, default=2, help='experiments times')
