@@ -204,6 +204,211 @@ class AutoCorrelation(nn.Module):
 
         return delays_agg
 
+    def time_delay_agg_router(self, values, corr):
+        """
+        Experiment 2B:
+        Per-sample lag selection + learned adaptive period weighting.
+
+        Candidate lag selection is exactly the same as Experiment 2A.
+
+        Difference:
+            2A:
+                weight = Softmax(correlation)
+
+            2B:
+                weight = Softmax(
+                    correlation + learned_router_adjustment
+                )
+        """
+
+        batch = values.shape[0]
+        head = values.shape[1]
+        channel = values.shape[2]
+        length = values.shape[3]
+
+        top_k = int(self.factor * math.log(length))
+        top_k = max(1, min(top_k, length))
+
+        # --------------------------------------------------
+        # Sample-specific autocorrelation curve
+        #
+        # [B,H,E,L] -> [B,L]
+        # --------------------------------------------------
+        mean_value = torch.mean(
+            torch.mean(corr, dim=1),
+            dim=1
+        )
+
+        # --------------------------------------------------
+        # Candidate periods.
+        #
+        # IMPORTANT:
+        # Same candidate selection as Experiment 2A.
+        #
+        # base_weights: [B,K]
+        # delay:        [B,K]
+        # --------------------------------------------------
+        base_weights, delay = torch.topk(
+            mean_value,
+            top_k,
+            dim=-1
+        )
+
+        # --------------------------------------------------
+        # Build a compact description of the sample's
+        # autocorrelation pattern.
+        # --------------------------------------------------
+
+        corr_mean = mean_value.mean(
+            dim=-1,
+            keepdim=True
+        )
+
+        corr_std = mean_value.std(
+            dim=-1,
+            keepdim=True,
+            unbiased=False
+        ).clamp_min(1e-6)
+
+        # Normalize the complete autocorrelation curve
+        normalized_corr = (
+            mean_value - corr_mean
+        ) / corr_std
+
+        # Compress the whole correlation curve into
+        # router_bins numbers.
+        #
+        # [B,L] -> [B,router_bins]
+        corr_profile = F.adaptive_avg_pool1d(
+            normalized_corr.unsqueeze(1),
+            self.router_bins
+        ).squeeze(1)
+
+        # Normalize the selected candidate correlations
+        candidate_corr = (
+            base_weights - corr_mean
+        ) / corr_std
+
+        # Normalize lag location:
+        #
+        # tau=0    -> 0
+        # tau=L-1  -> 1
+        delay_normalized = (
+            delay.float()
+            / max(length - 1, 1)
+        )
+
+        # --------------------------------------------------
+        # Build one feature vector for every candidate lag.
+        #
+        # corr_profile:
+        #   [B,router_bins]
+        #
+        # -> [B,K,router_bins]
+        # --------------------------------------------------
+        profile_expanded = (
+            corr_profile
+            .unsqueeze(1)
+            .expand(-1, top_k, -1)
+        )
+
+        # Final candidate feature:
+        #
+        # [
+        #   global sample autocorrelation profile,
+        #   candidate autocorrelation,
+        #   normalized candidate delay
+        # ]
+        #
+        # shape:
+        # [B,K,router_bins+2]
+        router_features = torch.cat(
+            [
+                profile_expanded,
+                candidate_corr.unsqueeze(-1),
+                delay_normalized.unsqueeze(-1)
+            ],
+            dim=-1
+        )
+
+        # --------------------------------------------------
+        # Learned usefulness adjustment
+        #
+        # [B,K,router_bins+2]
+        #        ↓
+        # [B,K]
+        # --------------------------------------------------
+        router_adjustment = self.period_router(
+            router_features
+        ).squeeze(-1)
+
+        # --------------------------------------------------
+        # Original correlation score
+        #            +
+        # learned forecasting usefulness correction
+        # --------------------------------------------------
+        routed_logits = (
+            base_weights
+            + router_adjustment
+        )
+
+        # Final learned period weights
+        tmp_corr = torch.softmax(
+            routed_logits,
+            dim=-1
+        )
+
+        # --------------------------------------------------
+        # Time Delay Aggregation
+        # --------------------------------------------------
+        init_index = torch.arange(
+            length,
+            device=values.device
+        ).view(1, 1, 1, length)
+
+        tmp_values = values.repeat(
+            1, 1, 1, 2
+        )
+
+        delays_agg = torch.zeros_like(
+            values
+        ).float()
+
+        for i in range(top_k):
+
+            current_delay = delay[:, i].view(
+                batch, 1, 1, 1
+            )
+
+            tmp_delay = (
+                init_index
+                + current_delay
+            )
+
+            tmp_delay = tmp_delay.expand(
+                batch,
+                head,
+                channel,
+                length
+            )
+
+            pattern = torch.gather(
+                tmp_values,
+                dim=-1,
+                index=tmp_delay
+            )
+
+            current_weight = tmp_corr[:, i].view(
+                batch, 1, 1, 1
+            )
+
+            delays_agg = (
+                delays_agg
+                + pattern * current_weight
+            )
+
+        return delays_agg
+
     def time_delay_agg_full(self, values, corr):
         """
         Standard version of Autocorrelation
@@ -247,10 +452,48 @@ class AutoCorrelation(nn.Module):
         corr = torch.fft.irfft(res, n=L, dim=-1)
 
         # time delay agg
-        if self.training:
-            V = self.time_delay_agg_training(values.permute(0, 2, 3, 1).contiguous(), corr).permute(0, 3, 1, 2)
+        values_for_agg = values.permute(
+            0, 2, 3, 1
+        ).contiguous()
+
+        if self.period_mode == 'original':
+
+            # Original Autoformer behavior
+            if self.training:
+                V = self.time_delay_agg_training(
+                    values_for_agg,
+                    corr
+                )
+            else:
+                V = self.time_delay_agg_inference(
+                    values_for_agg,
+                    corr
+                )
+
+        elif self.period_mode == 'samplewise':
+
+            # Experiment 2A
+            V = self.time_delay_agg_samplewise(
+                values_for_agg,
+                corr
+            )
+
+        elif self.period_mode == 'router':
+
+            # Experiment 2B
+            V = self.time_delay_agg_router(
+                values_for_agg,
+                corr
+            )
+
         else:
-            V = self.time_delay_agg_inference(values.permute(0, 2, 3, 1).contiguous(), corr).permute(0, 3, 1, 2)
+            raise ValueError(
+                f"Unknown period_mode: {self.period_mode}"
+            )
+
+        V = V.permute(
+            0, 3, 1, 2
+        )
 
         if self.output_attention:
             return (V.contiguous(), corr.permute(0, 3, 1, 2))
