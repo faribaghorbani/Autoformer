@@ -2,8 +2,14 @@ import torch
 import torch.nn as nn
 from layers.Embed import DataEmbedding_wo_pos
 from layers.AutoCorrelation import AutoCorrelation, AutoCorrelationLayer
-from layers.Autoformer_EncDec import Encoder, Decoder, EncoderLayer, DecoderLayer, my_Layernorm, series_decomp
-
+from layers.Autoformer_EncDec import (
+    Encoder,
+    Decoder,
+    EncoderLayer,
+    DecoderLayer,
+    my_Layernorm,
+    build_series_decomp
+)
 
 class Model(nn.Module):
     """
@@ -18,8 +24,17 @@ class Model(nn.Module):
         self.output_attention = configs.output_attention
 
         # Decomp
+        # ------------------------------------------------------------------
+        # Decomposition
+        # ------------------------------------------------------------------
         kernel_size = configs.moving_avg
-        self.decomp = series_decomp(kernel_size)
+
+        self.decomp = build_series_decomp(
+            decomp_type=configs.decomp_type,
+            channels=configs.enc_in,
+            moving_avg_kernel=kernel_size,
+            decomp_kernels=configs.decomp_kernels,
+        )
 
         # Embedding
         # The series-wise connection inherently contains the sequential information.
@@ -34,15 +49,24 @@ class Model(nn.Module):
             [
                 EncoderLayer(
                     AutoCorrelationLayer(
-                        AutoCorrelation(False, configs.factor, attention_dropout=configs.dropout,
-                                        output_attention=configs.output_attention),
-                        configs.d_model, configs.n_heads),
+                        AutoCorrelation(
+                            False,
+                            configs.factor,
+                            attention_dropout=configs.dropout,
+                            output_attention=configs.output_attention
+                        ),
+                        configs.d_model,
+                        configs.n_heads
+                    ),
                     configs.d_model,
                     configs.d_ff,
                     moving_avg=configs.moving_avg,
                     dropout=configs.dropout,
-                    activation=configs.activation
-                ) for l in range(configs.e_layers)
+                    activation=configs.activation,
+                    decomp_type=configs.decomp_type,
+                    decomp_kernels=configs.decomp_kernels,
+                )
+                for l in range(configs.e_layers)
             ],
             norm_layer=my_Layernorm(configs.d_model)
         )
@@ -51,19 +75,33 @@ class Model(nn.Module):
             [
                 DecoderLayer(
                     AutoCorrelationLayer(
-                        AutoCorrelation(True, configs.factor, attention_dropout=configs.dropout,
-                                        output_attention=False),
-                        configs.d_model, configs.n_heads),
+                        AutoCorrelation(
+                            True,
+                            configs.factor,
+                            attention_dropout=configs.dropout,
+                            output_attention=False
+                        ),
+                        configs.d_model,
+                        configs.n_heads
+                    ),
                     AutoCorrelationLayer(
-                        AutoCorrelation(False, configs.factor, attention_dropout=configs.dropout,
-                                        output_attention=False),
-                        configs.d_model, configs.n_heads),
+                        AutoCorrelation(
+                            False,
+                            configs.factor,
+                            attention_dropout=configs.dropout,
+                            output_attention=False
+                        ),
+                        configs.d_model,
+                        configs.n_heads
+                    ),
                     configs.d_model,
                     configs.c_out,
                     configs.d_ff,
                     moving_avg=configs.moving_avg,
                     dropout=configs.dropout,
                     activation=configs.activation,
+                    decomp_type=configs.decomp_type,
+                    decomp_kernels=configs.decomp_kernels,
                 )
                 for l in range(configs.d_layers)
             ],
