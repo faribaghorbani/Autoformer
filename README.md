@@ -4,9 +4,11 @@ This repository extends **Autoformer** for long-term time series forecasting on 
 
 ## Proposed Modifications
 
-- **Adaptive Multi-Scale Decomposition** — combines moving-average kernels of 13, 25, and 49 using learned weights.
-- **Sample-Adaptive Lag Selection (2A)** — selects Top-$k$ Auto-Correlation delays independently for each sample.
-- **Adaptive Period Routing (2B)** — uses a lightweight MLP to adaptively weight the selected periods. In our experiments, 2B is used together with 2A.
+- **Adaptive Multi-Scale Decomposition** — combines moving-average kernels of 13, 25, and 49 using learned weights (branch experiment1)
+- **Sample-Adaptive Lag Selection (2A)** — selects Top-$k$ Auto-Correlation delays independently for each sample. (branch experiment2)
+- **Adaptive Period Routing (2B)** — uses a lightweight MLP to adaptively weight the selected periods. In our experiments, 2B is used together with 2A. (branch experiment2)
+
+(the baseline repository of Autoformer is pushed on main branch)
 
 ## Results
 
