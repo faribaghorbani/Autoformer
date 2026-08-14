@@ -1,0 +1,5 @@
+dataset,root_path,data_path,features,seq_len,label_len,pred_len,enc_in,dec_in,c_out,e_layers,d_layers,factor,d_model,batch_size,learning_rate,train_epochs,patience,seed,mse,mae,status,notes
+ETTm2,/kaggle/input/datasets/faribaghorbani/autoformer-dataset/dataset/ETT-small,ETTm2.csv,M,96,48,96,7,7,7,2,1,1,512,32,0.0001,10,3,2021,0.24687685072422028,0.32499146461486816,success,2026-08-12 21:58:42.336196
+ETTm2,/kaggle/input/datasets/faribaghorbani/autoformer-dataset/dataset/ETT-small,ETTm2.csv,M,96,48,192,7,7,7,2,1,1,512,32,0.0001,10,3,2021,0.2820432782173157,0.34112653136253357,success,2026-08-12 22:14:30.955463
+ETTm2,/kaggle/input/datasets/faribaghorbani/autoformer-dataset/dataset/ETT-small,ETTm2.csv,M,96,48,336,7,7,7,2,1,1,512,32,0.0001,10,3,2021,0.33154430985450745,0.36754313111305237,success,2026-08-12 22:31:44.447386
+ETTm2,/kaggle/input/datasets/faribaghorbani/autoformer-dataset/dataset/ETT-small,ETTm2.csv,M,96,48,720,7,7,7,2,1,1,512,32,0.0001,10,3,2021,0.43529012799263,0.4293901324272156,success,2026-08-12 22:55:40.231714
